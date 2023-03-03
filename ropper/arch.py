@@ -291,11 +291,11 @@ class ArchitectureX86_64(ArchitectureX86):
     def _initCategories(self):
         self._categories = {
                 gadget.Category.STACK_PIVOT : (('^mov (?P<dst>.sp), .+ ptr \[(?P<src>...)\]$','^mov (?P<dst>.sp), (?P<src>...)$','^xchg (?P<dst>.sp), (?P<src>...)$','^xchg (?P<dst>...), (?P<src>.sp)$','ret.+'),('push','mov','call','jmp')),
-                gadget.Category.LOAD_MEM : (('mov (?P<dst>r..), .+ ptr \[(?P<src>r..)\]',),('push','mov','call','jmp')),
-                gadget.Category.WRITE_MEM : (('^mov .+ ptr \[(?P<dst>r..)\], (?P<src>r..)$',),('push','mov','call','jmp')),
-                gadget.Category.LOAD_REG : (('pop (?P<dst>r..)',),('push','mov','call','jmp')),
-                gadget.Category.JMP : (('^jmp (?P<dst>r..)$',),()),
-                gadget.Category.CALL : (('^call (?P<dst>r..)$',),('push','mov','call','jmp')),
+                gadget.Category.LOAD_MEM : (('mov (?P<dst>r.+), .+ ptr \[(?P<src>r.+)\]',),('push','mov','call','jmp')),
+                gadget.Category.WRITE_MEM : (('^mov .+ ptr \[(?P<dst>r.+)\], (?P<src>r.+)$',),('push','mov')),
+                gadget.Category.LOAD_REG : (('pop (?P<dst>r.+)',),('push','mov')),
+                gadget.Category.JMP : (('^jmp (?P<dst>r.+)$',),()),
+                gadget.Category.CALL : (('^call (?P<dst>r.+)$',),('push','mov','call','jmp')),
                 gadget.Category.INC_REG : (('^inc (?P<dst>...)$', '^add (?P<dst>[er]?..), 1$'),('push','mov','call','jmp')),
                 gadget.Category.CLEAR_REG : (('^xor (?P<dst>...), (?P<src>...)$',),('push','mov','call','jmp')),
                 gadget.Category.SUB_REG : (('^sub (?P<dst>...), (?P<src>...)$',),('push','mov','call','jmp')),
@@ -304,10 +304,6 @@ class ArchitectureX86_64(ArchitectureX86):
                 gadget.Category.PUSHAD : (('^pushal$',),('push','mov','call','jmp')),
                 gadget.Category.NEG_REG : (('^neg (?P<dst>...)$',),('push','mov','call','jmp')),
                 gadget.Category.SYSCALL : (('^syscall$',),('push','mov','call','jmp'))}
-
-
-
-
 
 
 class ArchitectureMips(Architecture):

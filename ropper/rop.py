@@ -60,6 +60,7 @@ class Ropper(object):
         super(Ropper, self).__init__()
         self.__callback = callback
         self.__cs = None
+        
 
 
     def __getCs(self, arch):
@@ -295,7 +296,6 @@ class Ropper(object):
         return sorted(gadgets, key=Gadget.simpleInstructionString)
 
     def _searchGadgetsSingle(self, section, binary, instruction_count=5, gtype=GadgetType.ALL):
-
         toReturn = []
         code = bytes(bytearray(section.bytes))
         # TODO: Another solution should be used here. This is a hack for compatibility reasons. to resolve the gadget address calculation of segments of elf files have a different base address if calculated segment.virtualAddress - segment.offset 
@@ -351,7 +351,6 @@ class Ropper(object):
         return toReturn
 
     def _searchGadgetsForked(self, section, binary, instruction_count=5, gtype=GadgetType.ALL):
-
         to_return = []
         code = bytes(bytearray(section.bytes))
 
@@ -397,7 +396,6 @@ class Ropper(object):
         return to_return
 
     def __gatherGadgetsByEndings(self,code, arch, fileName, sectionName, offset, ending_queue, gadget_queue, instruction_count):
-
         #try:
         while True:
             ending = ending_queue.get()
@@ -455,6 +453,7 @@ class Ropper(object):
         return to_return
 
     def __createGadget(self, arch, code_str, codeStartAddress, ending, binary=None, section=None):
+        print("HERE!!!!!!!!!!!!!!!!!!!!!!!")
         gadget = Gadget(binary, section, arch)
         hasret = False
         if codeStartAddress == 0x0000000001b34d74:
@@ -462,6 +461,8 @@ class Ropper(object):
         disassembler = self.__getCs(arch)
 
         for i in disassembler.disasm(code_str, codeStartAddress):
+            print(i.address, i.mnemonic,i.op_str, i.bytes)
+            print(ending[0])
             if re.match(ending[0], i.bytes):
                 hasret = True
 

@@ -1020,7 +1020,6 @@ nx\t- Clears the NX-Flag (ELF|PE)"""
                 arch = str(self.currentFile.arch)
             else:
                 arch = 'x86'
-
         self.__disasm(text, arch)
 
     def help_disasm(self):

@@ -70,6 +70,7 @@ class Gadget(object):
         self.__bytes = bytes
         self.__info = semantic_information
         self.__analysed = semantic_information is not None
+        self.__next_hop = None
         #if init:
         #    self.__initialize(lines, bytes)
 
@@ -215,6 +216,21 @@ class Gadget(object):
         return toReturn
 
     @property
+    def next_hop(self):
+        if not self.__next_hop:
+            self.__next_hop = ''
+
+            full_line = self.simpleInstructionString()
+
+            for line in self.__lines:
+                if line[1].startswith('call'):
+                    self.__next_hop = line[1].split(' ')[1]
+            return self.__next_hop
+        else:
+            return self.__next_hop
+
+
+    @property
     def affected_regs(self):
         if not self.__affected_regs:
             self.__affected_regs = set()
@@ -249,12 +265,15 @@ class Gadget(object):
                         for invalid in regexs[1]:
                             for l in self.__lines[1:]:
                                 if l[1].startswith(invalid):
+                                    print("Invalid ASM found for line: %s - invalid: %s" % (line, invalid))
                                     self.__category = (Category.NONE,)
                                     return self.__category
 
                         self.__category = (cat, len(self.__lines) -1 ,match.groupdict())
                         self.__category[2]['affected'] = self.affected_regs
+                        self.__category[2]['next_hop'] = self.next_hop
                         return self.__category
+            print("No category found for line: %s" % line)    
             self.__category = (Category.NONE,)
 
         return self.__category

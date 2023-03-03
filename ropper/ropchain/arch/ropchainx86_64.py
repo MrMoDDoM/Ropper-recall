@@ -166,7 +166,7 @@ class RopChainX86_64(RopChain):
         regs = []
         for idx in range(1,len(gadget.lines)):
             line = gadget.lines[idx][1]
-            matched = match('^pop (...)$', line)
+            matched = match('^pop (.+)$', line)
             if matched:
                 regs.append(matched.group(1))
         return regs
@@ -225,7 +225,7 @@ class RopChainX86_64(RopChain):
             if not self._containsZeroByte(i) and not self._containsZeroByte(number-i):
                 return i
 
-    def _find(self, category, reg=None, srcdst='dst', badDst=[], badSrc=None, dontModify=None, srcEqDst=False, switchRegs=False ):
+    def _find(self, category, reg=None, srcdst='dst', badDst=[], badSrc=None, dontModify=None, srcEqDst=False, switchRegs=False, recall=False ):
         quali = 1
 
         if reg and reg[0] != 'r':
@@ -233,58 +233,127 @@ class RopChainX86_64(RopChain):
         while quali < RopChainSystemX86_64.MAX_QUALI:
             for binary in self._binaries:
                 for gadget in self._gadgets[binary]:
+                    #print(gadget.simpleString)
+                    if ("call" in str(gadget.simpleString) and "ret" in str(gadget.simpleString)): # Sometimes gadgets are mixed up
+                        # I thinks there is a problem with the gadget parser in the first place, but I don't know how to fix it
+                        # print(gadget.simpleString)
+                        # print("QUI 2!")
+                        continue
 
                     if gadget.category[0] == category and gadget.category[1] == quali:
 
                         if badSrc and (gadget.category[2]['src'] in badSrc \
                                        or gadget.affected_regs.intersection(badSrc)):
+                            print("QUI 3!")
                             continue
                         if badDst and (gadget.category[2]['dst'] in badDst \
                                        or gadget.affected_regs.intersection(badDst)):
+                            print("QUI 4!")
                             continue
-                        if not gadget.lines[len(gadget.lines)-1][1].strip().endswith('ret') or 'esp' in gadget.simpleString() or 'rsp' in gadget.simpleString():
+                        if (not gadget.lines[len(gadget.lines)-1][1].strip().endswith('ret') and not recall):
+                            print("QUI 5!")
+                            continue
+                        if recall and not "call" in gadget.lines[len(gadget.lines)-1][1]: # TODO: check if this is correct
+                            print("QUI 6!")
+                            continue
+                        if 'esp' in gadget.simpleString() or 'rsp' in gadget.simpleString():
+                            print("QUI 7!")
                             continue
                         if srcEqDst and (not (gadget.category[2]['dst'] == gadget.category[2]['src'])):
+                            print("QUI 8!")
                             continue
                         elif not srcEqDst and 'src' in gadget.category[2] and (gadget.category[2]['dst'] == gadget.category[2]['src']):
+                            print("QUI 9!")
                             continue
                         if self._isModifiedOrDereferencedAccess(gadget, dontModify):
+                            print("QUI 10!")
                             continue
                         if reg:
+
                             if gadget.category[2][srcdst] == reg:
+                                print("QUI 11!")
                                 self._updateUsedBinaries(gadget)
                                 return gadget
                             elif switchRegs:
                                 other = 'src' if srcdst == 'dst' else 'dst'
                                 if gadget.category[2][other] == reg:
+                                    print("QUI 12!")
                                     self._updateUsedBinaries(gadget)
                                     return gadget
                         else:
+                            print("QUI 13!")
                             self._updateUsedBinaries(gadget)
                             return gadget
 
             quali += 1
 
-
     def _createWriteStringWhere(self, what, where, reg=None, dontModify=[], idx=0):
         badRegs = []
         badDst = []
         while True:
+            is_recall = [False, False, False]
+            # self._printMessage('[D] Searching for a LOAD_REG gadget, with reg %s and badDst %s and dontModify %s' % (reg, badDst, dontModify))
+            print('Searching for a LOAD_REG gadget, with reg %s and badDst %s and dontModify %s' % (reg, badDst, dontModify))
             popReg = self._find(Category.LOAD_REG, reg=reg, badDst=badRegs, dontModify=dontModify)
             if not popReg:
-                raise RopChainError('Cannot build writewhatwhere gadget!')
-            write4 = self._find(Category.WRITE_MEM, reg=popReg.category[2]['dst'],  badDst=
-            badDst, srcdst='src')
+                # self._printMessage('[!] No popReg gadget found! Try RE-Call hack...')
+                popReg = self._find(Category.LOAD_REG, reg=reg, badDst=badRegs, dontModify=dontModify, recall=True)
+                if not popReg:
+                    raise RopChainError('Cannot build writewhatwhere gadget! Even with RE-Call hack!')
+                
+                # self._printMessage('[+] Found CALL gadget for PopReg!')
+                # self._printMessage(self._printRopInstruction(popReg))
+
+                popRegForRecall = self._find(Category.LOAD_REG, reg=popReg.category[2]['next_hop'], dontModify=dontModify)
+                if not popRegForRecall:
+                    raise RopChainError('Cannot build writewhatwhere: no popRegForRecall gadget found!')
+                is_recall[0] = True
+                # print("Found popForRecall: %s" % popRegForRecall.simpleString)
+
+            self._printMessage('[D] Found suitable popReg gadget: %s' % popReg.simpleString)
+
+            write4 = self._find(Category.WRITE_MEM, reg=popReg.category[2]['dst'],  badDst=badDst, srcdst='src')
             if not write4:
-                badRegs.append(popReg.category[2]['dst'])
-                continue
-            else:
-                popReg2 = self._find(Category.LOAD_REG, reg=write4.category[2]['dst'], dontModify=[popReg.category[2]['dst']]+dontModify)
+                self._printMessage('[!] No write4 gadget found! Try RE-Call hack...')
+                print('Searching for a WRITE_MEM gadget, with reg %s and badDst %s and dontModify %s' % (popReg.category[2]['dst'], badDst, dontModify))
+                write4 = self._find(Category.WRITE_MEM, reg=popReg.category[2]['dst'],  badDst=badDst, srcdst='src', recall=True)
+
+                if not write4:
+                    badRegs.append(popReg.category[2]['dst'])
+                    continue
+                
+                self._printMessage('[+] Found CALL gadget for write4')
+                self._printMessage(self._printRopInstruction(write4))
+                write4ForRecall = self._find(Category.LOAD_REG, reg=write4.category[2]['next_hop'], dontModify=dontModify)
+                if not write4ForRecall:
+                    badRegs.append(popReg.category[2]['dst'])
+                    continue
+
+                #print("Found write4ForRecall: %s" % write4ForRecall.simpleString)
+                is_recall[1] = True
+            
+            popReg2 = self._find(Category.LOAD_REG, reg=write4.category[2]['dst'], dontModify=[popReg.category[2]['dst']]+dontModify)
+            if not popReg2:
+                popReg2 = self._find(Category.LOAD_REG, reg=write4.category[2]['dst'], dontModify=[popReg.category[2]['dst']]+dontModify, recall=True)
+                
                 if not popReg2:
                     badDst.append(write4.category[2]['dst'])
                     continue
-                else:
-                    break;
+                
+                popReg2ForRecall = self._find(Category.LOAD_REG, reg=popReg2.category[2]['next_hop'], dontModify=dontModify)
+                if not popReg2ForRecall:
+                    badDst.append(write4.category[2]['dst'])
+                    continue
+                
+                is_recall[2] = True
+                break
+            else:
+                break;
+
+        
+        print("#"*20)
+        print(is_recall)
+
 
         if len(what) % 8 > 0:
             what += ' ' * (8 - len(what) % 8)
@@ -292,43 +361,80 @@ class RopChainX86_64(RopChain):
         for index in range(0,len(what),8):
             part = what[index:index+8]
 
+
+            if is_recall[0]:
+                toReturn += self._printRopInstruction(popRegForRecall, False)
+                toReturn += self._printRopInstruction(popRegForRecall, False)
             toReturn += self._printRopInstruction(popReg,False)
             toReturn += self._printAddString(part)
             regs = self._paddingNeededFor(popReg)
+            # toReturn += "DEBUG: %s" % regs
             for i in range(len(regs)):
                 toReturn +=self._printPaddingInstruction()
+
             toReturn += self._printRopInstruction(popReg2, False)
 
             toReturn += self._printRebasedAddress(toHex(where+index,8), idx=idx)
             regs = self._paddingNeededFor(popReg2)
             for i in range(len(regs)):
                 toReturn +=self._printPaddingInstruction()
+
+            if is_recall[1]:
+                toReturn += self._printRopInstruction(write4ForRecall, False)
+                toReturn += self._printRopInstruction(write4ForRecall, False)
             toReturn += self._printRopInstruction(write4)
+
+
+        print(toReturn)
         return (toReturn,popReg.category[2]['dst'], popReg2.category[2]['dst'])
 
 
     def _createWriteRegValueWhere(self, what, where, dontModify=[], idx=0):
         badRegs = []
         badDst = []
+        is_recall = [False, False]
         while True:
 
 
             write4 = self._find(Category.WRITE_MEM, reg=what,  badDst=badDst, dontModify=dontModify, srcdst='src')
             if not write4:
-                raise RopChainError('Cannot build writeregvaluewhere gadget!')
-            else:
-                popReg2 = self._find(Category.LOAD_REG, reg=write4.category[2]['dst'], dontModify=[what]+dontModify)
+                write4 = self._find(Category.WRITE_MEM, reg=what,  badDst=badDst, dontModify=dontModify, srcdst='src', recall=True)
+                if not write4:
+                    raise RopChainError('Cannot build writeregvaluewhere gadget!')
+                is_recall[0] = True
+                write4ForRecall = self._find(Category.LOAD_REG, reg=write4.category[2]['next_hop'], dontModify=dontModify)
+                if not write4ForRecall:
+                    raise RopChainError('Cannot build writeregvaluewhere gadget!')
+
+            popReg2 = self._find(Category.LOAD_REG, reg=write4.category[2]['dst'], dontModify=[what]+dontModify)
+            if not popReg2:
+                popReg2 = self._find(Category.LOAD_REG, reg=write4.category[2]['dst'], dontModify=[what]+dontModify, recall=True)
                 if not popReg2:
                     badDst.append(write4.category[2]['dst'])
                     continue
-                else:
-                    break;
 
-        toReturn = self._printRopInstruction(popReg2, False)
+                is_recall[1] = True
+                popReg2ForRecall = self._find(Category.LOAD_REG, reg=popReg2.category[2]['next_hop'], dontModify=dontModify)
+                if not popReg2ForRecall:
+                    badDst.append(write4.category[2]['dst'])
+                    continue
+            else:
+                break;
+
+        if is_recall[1]:
+            toReturn = self._printRopInstruction(popReg2ForRecall, False)
+            toReturn += self._printRopInstruction(popReg2ForRecall, False)
+            toReturn += self._printRopInstruction(popReg2, False)
+        else:
+            toReturn = self._printRopInstruction(popReg2, False)
         toReturn += self._printRebasedAddress(toHex(where,8), idx=idx)
         regs = self._paddingNeededFor(popReg2)
         for i in range(len(regs)):
             toReturn +=self._printPaddingInstruction()
+        
+        if is_recall[0]:
+            toReturn += self._printRopInstruction(write4ForRecall, False)
+            toReturn += self._printRopInstruction(write4ForRecall, False)
         toReturn += self._printRopInstruction(write4)
 
         return (toReturn,what, popReg2.category[2]['dst'])
@@ -490,7 +596,6 @@ class RopChainX86_64(RopChain):
 
         return (toReturn ,popReg.category[2]['dst'],)
 
-
     def _createNumberXOR(self, number, reg=None, badRegs=None, dontModify=None):
         while True:
             clearReg = self._find(Category.CLEAR_REG, reg=reg, badDst=badRegs, badSrc=badRegs,dontModify=dontModify, srcEqDst=True)
@@ -544,6 +649,7 @@ class RopChainX86_64(RopChain):
         return (toReturn, reg,)
 
     def _createNumber(self, number, reg=None, badRegs=None, dontModify=None, xchg=True):
+        self._printMessage("Creating number %d" % number)
         try:
             if self.containsBadbytes(number):
                 try:
@@ -568,11 +674,30 @@ class RopChainX86_64(RopChain):
                         except RopChainError:
                             return self._createNumberAddition(number, reg, badRegs,dontModify)
             else:
-                popReg =self._find(Category.LOAD_REG, reg=reg, badDst=badRegs,dontModify=dontModify)
+                is_recall = False
+                popReg = self._find(Category.LOAD_REG, reg=reg, badDst=badRegs, dontModify=dontModify)
                 if not popReg:
-                    raise RopChainError('Cannot build number gadget!')
+                    popReg = self._find(Category.LOAD_REG, reg=reg, badDst=badRegs, dontModify=dontModify, recall=True)
+
+                    if not popReg:
+                        print("QUI 1")
+                        raise RopChainError('Cannot build number gadget!')
+                    
+                    popRegForRecall = self._find(Category.LOAD_REG, reg=popReg.category[2]['next_hop'], dontModify=dontModify)
+                    if not popRegForRecall:
+                        print("QUI 2")
+                        raise RopChainError('Cannot build number gadget!')
+
+                    is_recall = True
                 value = self._printPaddingInstruction(toHex(number,8))
-                toReturn = self._printRopInstruction(popReg, value=value)
+                if is_recall:
+                    toReturn = self._printRopInstruction(popRegForRecall, False)
+                    toReturn += self._printRopInstruction(popRegForRecall, False)
+                    toReturn += self._printRopInstruction(popReg, value=value)
+                else:
+                    toReturn = self._printRopInstruction(popReg, value=value)
+
+                print('-'*80)
                 return (toReturn , popReg.category[2]['dst'])
         except RopChainError:
             return self._createNumberXchg(number, reg, badRegs, dontModify)
@@ -610,7 +735,6 @@ class RopChainX86_64(RopChain):
             if (gadget.fileName, gadget.section) not in self._usedBinaries:
                 self._usedBinaries.append((gadget.fileName, gadget.section))
             return self._printRopInstruction(gadget)
-
 
     def _searchOpcode(self, opcode):
         r = Ropper()
@@ -657,6 +781,15 @@ class RopChainSystemX86_64(RopChainX86_64):
         gadgets = []
         can_create_command = False
         chain_tmp = '\n'
+
+
+        for binary in self._binaries:
+            for gadget in self._gadgets[binary]:
+                print(gadget)
+                print(gadget.category)
+
+
+
         if address is None:
             section = self._binaries[0].getSection('.data')
 
@@ -668,6 +801,7 @@ class RopChainSystemX86_64(RopChainX86_64):
                 can_create_command = True
 
             except RopChainError as e:
+                print(e)
                 self._printMessage('Cannot create gadget: writewhatwhere')
                 self._printMessage('Use 0x4141414141414141 as command address. Please replace that value.')
                 cmdaddress = 0x4141414141414141
@@ -682,6 +816,7 @@ class RopChainSystemX86_64(RopChainX86_64):
                         tmpx += self._createWriteRegValueWhere(ret[1], nulladdress)[0]
                         break
                     except BaseException as e:
+                        self._printMessage('ERROR:AAAAAAAAAAAAAAAAAAAAAAAAAAA')
                         #raise e
                         badregs.append(ret[1])
 
